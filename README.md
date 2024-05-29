@@ -7,3 +7,10 @@
 bash ./scripts/CHL-A1.sh
 ```
 
+- Or you can train the model in Windows by:
+
+```cmd
+./scripts/CHL-A1.bat
+```
+
+- Or use `run.ipynb` in Colab to train the model.
