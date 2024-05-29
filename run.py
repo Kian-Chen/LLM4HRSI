@@ -2,7 +2,15 @@ import argparse
 import os
 import sys
 sys.path.append("..")
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+
+# Check if CUDA is available and set GPU environment variable accordingly
+if torch.cuda.is_available():
+  device = torch.device("cuda")
+  os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # You can modify this to select the appropriate GPU
+else:
+  device = torch.device("cpu")
+  print("CUDA is not available. Using CPU.")
+
 import torch
 from exp.exp_imputation import Exp_Imputation
 import random
