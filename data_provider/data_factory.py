@@ -1,9 +1,10 @@
-from data_provider.data_loader import  Dataset_Custom
+from data_provider.data_loader import  Dataset_Custom, Dataset_Multisource
 from torch.utils.data import DataLoader
 
 data_dict = {
    
     'custom': Dataset_Custom,
+    'multisource': Dataset_Multisource
 }
 
 def data_provider(args, flag):
@@ -12,7 +13,10 @@ def data_provider(args, flag):
     
     timeenc = 0 if args.embed != 'timeF' else 1
     percent = args.percent
-
+    # TODO? shuffle is all false? why need shuffle
+    # TODO? drop_last is all true? with shuffle used in loader
+    # TODO? seem that bach_size is all 1
+    # TODO? freq is useless
     if flag == 'test':
         shuffle_flag = False
         drop_last = True
@@ -27,7 +31,7 @@ def data_provider(args, flag):
 
     
     
-        
+    # TODO? seq_len = 24, label_len = 0, pred_len = 0
     data_set = Data(
             root_path=args.root_path,
             data_path=args.data_path,

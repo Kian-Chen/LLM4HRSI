@@ -471,4 +471,4 @@ test_results/
 checkpoints/
 dataset/
 datasets/
-result*.txt
+*result*.txt

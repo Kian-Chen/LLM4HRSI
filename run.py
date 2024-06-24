@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 sys.path.append("..")
-
+import torch
 # Check if CUDA is available and set GPU environment variable accordingly
 if torch.cuda.is_available():
   device = torch.device("cuda")
@@ -11,7 +11,7 @@ else:
   device = torch.device("cpu")
   print("CUDA is not available. Using CPU.")
 
-import torch
+
 from exp.exp_imputation import Exp_Imputation
 import random
 import numpy as np
