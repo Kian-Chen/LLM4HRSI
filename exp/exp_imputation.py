@@ -120,10 +120,11 @@ class Exp_Imputation(Exp_Basic):
         for epoch in range(self.args.train_epochs):
             train_loss = []
             train_loss_sources = {0: [], 1: [], 2: []}
-
+            iter_count = 0
             self.model.train()
             epoch_time = time.time()
             for i, (batch_x, batch_y, batch_mask, eval_mask) in tqdm(enumerate(train_loader)):
+                iter_count += 1
                 model_optim.zero_grad()
 
                 batch_x = batch_x.float().to(self.device)
