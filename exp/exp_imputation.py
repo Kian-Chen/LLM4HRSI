@@ -43,7 +43,7 @@ class Exp_Imputation(Exp_Basic):
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
         source_losses = {0: [], 1: [], 2: []}
-        sources = ['cha', 'sst', 'par']
+        sources = ['cha', 'par', 'sst']
         
         self.model.eval()
         with torch.no_grad():
@@ -102,7 +102,7 @@ class Exp_Imputation(Exp_Basic):
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
         
-        sources = ['cha', 'sst', 'par']
+        sources = ['cha', 'par', 'sst']
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -169,8 +169,7 @@ class Exp_Imputation(Exp_Basic):
 
                 if (i + 1) % 100 == 0:
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    print("\t{0} loss: {1}, {2} loss: {3}, {4} loss: {5}",
-                          sources[0], losses[0].item(), sources[1], losses[1].item(), sources[2], losses[2].item())
+                    print("\t{0} loss: {1}, {2} loss: {3}, {4} loss: {5}".format(sources[0], losses[0].item(), sources[1], losses[1].item(), sources[2], losses[2].item()))
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
@@ -192,7 +191,7 @@ class Exp_Imputation(Exp_Basic):
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
             early_stopping(vali_loss, self.model, path)
-            if early_stopping.early_stop or True:
+            if early_stopping.early_stop:
                 print("Early stopping")
                 break
             adjust_learning_rate(model_optim, epoch + 1, self.args)
@@ -211,7 +210,7 @@ class Exp_Imputation(Exp_Basic):
         preds = {0: [], 1: [], 2: []}
         trues = {0: [], 1: [], 2: []}
         eval_masks = {0: [], 1: [], 2: []}
-        sources = ['cha', 'sst', 'par']
+        sources = ['cha', 'par', 'sst']
         folder_path = './test_results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)

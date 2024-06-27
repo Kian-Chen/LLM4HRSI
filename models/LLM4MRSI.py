@@ -130,16 +130,17 @@ class Model(nn.Module):
         
         #print("The shape of dec_outs is: ", dec_outs.shape)
         B, L, M, S = dec_outs.shape
-        # Flatten the last two dims(flatten the vars) 
+        # Flatten the last two dims(flatten the vars)
         dec_outs = dec_outs.view(B, L, M * S)
 
         # Apply ConvFFN
         dec_outs = dec_outs.transpose(1, 2)
+        residual = dec_outs
         dec_outs = self.ffn_pw1(dec_outs)
         dec_outs = self.ffn_act(dec_outs)
         dec_outs = self.ffn_drop1(dec_outs)
         dec_outs = self.ffn_pw2(dec_outs)
-        dec_outs = self.ffn_drop2(dec_outs)
+        dec_outs = self.ffn_drop2(dec_outs) + residual
 
         # Reshape to the original shape
         dec_outs = dec_outs.transpose(1, 2)
