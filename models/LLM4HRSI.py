@@ -79,7 +79,7 @@ class Model(nn.Module):
         
         B, L, M = x_enc.shape
         x_enc = x_enc.masked_fill(mask == 0, 0)
-        print("x_enc first shape: ", x_enc.shape)
+        #print("x_enc first shape: ", x_enc.shape)
         # temporal
 
         #forward imputation
@@ -109,7 +109,7 @@ class Model(nn.Module):
     
         dec_out = torch.cat([tem_out, spa_out],dim = 2)
         dec_out = self.weight_layer(dec_out)
-        print("dec_out shape: ", dec_out.shape)
+        #print("dec_out shape: ", dec_out.shape)
         return dec_out
 
               

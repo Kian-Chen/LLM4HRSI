@@ -24,7 +24,7 @@ def data_provider(args, flag):
         batch_size = 1  # bsz=1 for evaluation
         freq = args.freq
     else:
-        shuffle_flag = False
+        shuffle_flag = True
         drop_last = True
         batch_size = args.batch_size  # bsz for train and valid
         freq = args.freq
@@ -33,6 +33,7 @@ def data_provider(args, flag):
     
     # TODO? seq_len = 24, label_len = 0, pred_len = 0
     data_set = Data(
+            configs=args,
             root_path=args.root_path,
             data_path=args.data_path,
             artificially_missing_rate = args.mask_rate,

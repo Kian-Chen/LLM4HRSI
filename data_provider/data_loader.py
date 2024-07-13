@@ -69,11 +69,12 @@ def sample_mask(shape, p=0.002, p_noise=0., max_seq=1, min_seq=1, rng=None):
 
 
 class Dataset_Custom(Dataset):
-    def __init__(self, root_path, flag='train', size=None,
+    def __init__(self, configs, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=False, timeenc=0, freq='h', 
                  seasonal_patterns=None, artificially_missing_rate = 0.5,percent=10):
         # size [seq_len, label_len, pred_len]
+        self.configs = configs
         
         # info
         if size == None:
@@ -174,11 +175,12 @@ class Dataset_Custom(Dataset):
 
 
 class Dataset_Multisource(Dataset):
-    def __init__(self, root_path, file_list=None, limit_size=None, flag='train', size=None, data_path='ETTh1.csv', seasonal_patterns=None,
+    def __init__(self, configs, root_path, file_list=None, limit_size=None, flag='train', size=None, data_path='ETTh1.csv', seasonal_patterns=None,
                  features='S', target='OT', scale=False, timeenc=0, freq='h', 
                  artificially_missing_rate=0.5, percent=10):
         
         # size [seq_len, label_len, pred_len]
+        self.configs = configs
         if size is None:
             self.seq_len = 24 * 4 * 4
             self.label_len = 24 * 4
@@ -201,7 +203,10 @@ class Dataset_Multisource(Dataset):
 
         self.percent = percent
         self.root_path = root_path
-        self.file_list = file_list if file_list else glob.glob(os.path.join(root_path, '*.csv'))
+        self.source_names = configs.source_names
+        self.file_list = file_list if file_list else [
+            os.path.join(root_path, f"{source_name}_{data_path}") for source_name in
+            self.source_names]
         self.limit_size = limit_size
 
         SEED = 56789

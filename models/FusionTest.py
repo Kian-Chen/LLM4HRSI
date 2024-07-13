@@ -1,21 +1,24 @@
 from typing import Optional
 import numpy as np
 import pandas as pd
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
-
+from collections import OrderedDict
 from transformers import GPT2ForSequenceClassification
 from transformers.models.gpt2.modeling_gpt2 import GPT2Model
 from transformers.models.gpt2.configuration_gpt2 import GPT2Config
 from transformers import BertTokenizer, BertModel
 from einops import rearrange
+from models import LLM4HRSI
 
 
 class Model(nn.Module):
     def __init__(self, configs):
         super(Model, self).__init__()
+        self.configs = configs
         self.is_ln = configs.ln
         self.task_name = configs.task_name
         self.pred_len = configs.pred_len
@@ -26,44 +29,11 @@ class Model(nn.Module):
         self.d_ff = configs.d_ff
         self.c_out = configs.c_out
         self.d_model = configs.d_model
-        self.patch_num = (configs.seq_len + self.pred_len - self.patch_size) // self.stride + 1
 
-        self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
-        self.patch_num += 1
+        # Load pretrained models
+        self.pretrained_models = self.load_pretrained_models('pretrained/', configs.use_gpu)
 
-        self.gpt2 = GPT2Model.from_pretrained('./gpt2', output_attentions=True, output_hidden_states=True)
-        self.gpt2.h = self.gpt2.h[:configs.gpt_layers]
-
-        for i, (name, param) in enumerate(self.gpt2.named_parameters()):
-            if 'ln' in name or 'wpe' in name:
-                param.requires_grad = True
-            elif 'mlp' in name and configs.mlp == 1:
-                param.requires_grad = True
-            else:
-                param.requires_grad = False
-
-        if configs.use_gpu:
-            device = torch.device('cuda:{}'.format(0))
-            self.gpt2.to(device=device)
-
-        self.hidden_size = self.gpt2.config.hidden_size
-        self.in_layer = nn.Linear(configs.c_out * 2, self.hidden_size)
-        self.s_in_layer = nn.Linear(configs.seq_len * 2, self.hidden_size)
-        self.weight_layer = nn.Linear(configs.c_out * 2, configs.c_out)
-
-        self.mlp = nn.Sequential(
-            nn.Linear(configs.c_out * 2, configs.c_out),
-            nn.ReLU(),
-            nn.Linear(configs.c_out, configs.c_out),
-        )
-        self.drop = nn.Dropout(0.05)
-
-        self.ln_proj = nn.LayerNorm(self.hidden_size * 2)
-        self.s_ln_proj = nn.LayerNorm(self.hidden_size)
-        self.out_layer = nn.Linear(self.hidden_size * 2, configs.c_out, bias=True)
-        self.s_out_layer = nn.Linear(self.hidden_size, self.seq_len, bias=True)
-
-        self.nvars = 3
+        self.nvars = len(configs.source_names)
         self.ffn_pw1 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.d_ff, kernel_size=1, stride=1,
                                  padding=0, dilation=1, groups=self.c_out)
         self.ffn_act = nn.GELU()
@@ -74,6 +44,47 @@ class Model(nn.Module):
 
         self.final_linear = nn.Linear(self.nvars * self.c_out, self.nvars * self.c_out)
 
+
+    def load_pretrained_models(self, pretrained_dir, use_gpu):
+        pretrained_models = []
+
+        # Get list of files in the pretrained directory
+        mask_rate = self.configs.mask_rate
+        model_files = sorted(os.listdir(pretrained_dir))
+
+        for model_file in model_files:
+            if f"mask_{mask_rate}_" in model_file and model_file.endswith(self.configs.pretrain_postfix):
+                model_path = os.path.join(pretrained_dir, model_file)
+                model = self.load_model(model_path, use_gpu)
+                pretrained_models.append(model)
+
+        return pretrained_models
+
+    def load_model(self, model_path, use_gpu):
+        model = LLM4HRSI.Model(self.configs).float()
+
+        map_location = torch.device('cuda:0') if use_gpu else torch.device('cpu')
+
+        state_dict = torch.load(model_path, map_location=map_location)
+
+        # Remove 'module.' which generated in multi-gpu
+        if 'module.' in list(state_dict.keys())[0]:
+            state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+
+        model.load_state_dict(state_dict)
+
+        # Freeze the model parameters
+        for param in model.parameters():
+            param.requires_grad = False
+
+        if use_gpu:
+            device = torch.device('cuda:0')
+            model.to(device)
+
+        if self.configs.use_multi_gpu and self.configs.use_gpu:
+            model = nn.DataParallel(model, device_ids=self.configs.device_ids)
+
+        return model
 
     def forward(self, x_enc, mask=None):
         dec_out = self.imputation(x_enc, mask)
@@ -94,39 +105,7 @@ class Model(nn.Module):
             x_enc_source = x_enc[..., source_idx]
             mask_source = mask[..., source_idx]
 
-            #print("The shape of x_enc_source is: ", x_enc_source.shape)
-            #print("The shape of mask_source is: ", mask_source.shape)
-            x_enc_source = x_enc_source.masked_fill(mask_source == 0, 0)
-
-            # temporal
-            x_m_enc = torch.cat([x_enc_source, mask_source], dim=-1)
-            #print("Shape before in_layer: ", x_m_enc.shape)
-            x_m_enc = self.in_layer(x_m_enc)
-            #print("Shape after in_layer: ", x_m_enc.shape)
-            x_m_output = self.gpt2(inputs_embeds=x_m_enc).last_hidden_state
-
-            # backward imputation
-            re_x_m_enc = torch.flip(torch.cat([x_enc_source, mask_source], dim=-1), dims=(0, 1))
-            re_x_m_enc = self.in_layer(re_x_m_enc)
-            re_m_outputs = self.gpt2(inputs_embeds=re_x_m_enc).last_hidden_state
-            re_dec_out = torch.flip(re_m_outputs, dims=(0, 1))
-
-            tem_out = torch.cat([x_m_output, re_dec_out], dim=2)
-            tem_out = self.ln_proj(tem_out)
-            tem_out = self.out_layer(tem_out)
-
-            # spatial
-            x_s_enc = rearrange(tem_out, 'b l m -> b m l')
-            s_mask = rearrange(mask_source, 'b l m -> b m l')
-            x_m_s_enc = torch.cat([x_s_enc, s_mask], dim=-1)
-            x_m_s_enc = self.s_in_layer(x_m_s_enc)
-            x_m_s_output = self.gpt2(inputs_embeds=x_m_s_enc).last_hidden_state
-            s_outputs = self.s_ln_proj(x_m_s_output)
-            s_dec_out = self.s_out_layer(s_outputs)
-            spa_out = rearrange(s_dec_out, 'b m l -> b l m')
-
-            dec_out = torch.cat([tem_out, spa_out], dim=2)
-            dec_out = self.weight_layer(dec_out)
+            dec_out = self.pretrained_models[source_idx](x_enc_source, mask_source)
 
             # Store in dec_outs
             dec_outs[..., source_idx] = dec_out

@@ -472,3 +472,5 @@ checkpoints/
 dataset/
 datasets/
 *result*.txt
+pretrained/
+logs/

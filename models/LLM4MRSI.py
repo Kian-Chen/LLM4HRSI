@@ -63,14 +63,17 @@ class Model(nn.Module):
         self.out_layer = nn.Linear(self.hidden_size * 2, configs.c_out, bias=True)
         self.s_out_layer = nn.Linear(self.hidden_size, self.seq_len, bias=True)
 
-        self.nvars = 3
-        self.ffn_pw1 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.d_ff, kernel_size=1, stride=1,
+        self.nvars = len(configs.source_names)
+        self.ffn_pw1 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.c_out, kernel_size=1, stride=1,
                                  padding=0, dilation=1, groups=self.c_out)
         self.ffn_act = nn.GELU()
-        self.ffn_pw2 = nn.Conv1d(in_channels=self.nvars * self.d_ff, out_channels=self.nvars * self.c_out, kernel_size=1, stride=1,
+        self.ffn_pw2 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.c_out, kernel_size=1, stride=1,
                                  padding=0, dilation=1, groups=self.c_out)
         self.ffn_drop1 = nn.Dropout(0.1)
         self.ffn_drop2 = nn.Dropout(0.1)
+
+        self.final_linear = nn.Linear(self.nvars * self.c_out, self.nvars * self.c_out)
+
 
     def forward(self, x_enc, mask=None):
         dec_out = self.imputation(x_enc, mask)
@@ -127,7 +130,6 @@ class Model(nn.Module):
 
             # Store in dec_outs
             dec_outs[..., source_idx] = dec_out
-        
         #print("The shape of dec_outs is: ", dec_outs.shape)
         B, L, M, S = dec_outs.shape
         # Flatten the last two dims(flatten the vars)
@@ -144,5 +146,6 @@ class Model(nn.Module):
 
         # Reshape to the original shape
         dec_outs = dec_outs.transpose(1, 2)
+        dec_outs = self.final_linear(dec_outs)
         dec_outs = dec_outs.view(B, L, M, S)
         return dec_outs

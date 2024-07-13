@@ -42,8 +42,9 @@ class Exp_Imputation(Exp_Basic):
 
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
-        source_losses = {0: [], 1: [], 2: []}
-        sources = ['cha', 'par', 'sst']
+        source_nums = len(self.args.source_names)
+        source_losses = {i: [] for i in range(source_nums)}
+        sources = self.args.source_names
         
         self.model.eval()
         with torch.no_grad():
@@ -101,8 +102,9 @@ class Exp_Imputation(Exp_Basic):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-        
-        sources = ['cha', 'par', 'sst']
+
+        source_nums = len(self.args.source_names)
+        sources = self.args.source_names
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -119,7 +121,7 @@ class Exp_Imputation(Exp_Basic):
 
         for epoch in range(self.args.train_epochs):
             train_loss = []
-            train_loss_sources = {0: [], 1: [], 2: []}
+            train_loss_sources = {i: [] for i in range(source_nums)}
             iter_count = 0
             self.model.train()
             epoch_time = time.time()
@@ -167,9 +169,11 @@ class Exp_Imputation(Exp_Basic):
 
                 train_loss.append(loss.item())
 
+                # TODO: make it in a formal style
                 if (i + 1) % 100 == 0:
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    print("\t{0} loss: {1}, {2} loss: {3}, {4} loss: {5}".format(sources[0], losses[0].item(), sources[1], losses[1].item(), sources[2], losses[2].item()))
+                    loss_output = "\t" + " ".join(["{0} loss: {1}".format(sources[i], losses[i].item()) for i in range(source_nums)])
+                    print(loss_output)
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
@@ -207,10 +211,11 @@ class Exp_Imputation(Exp_Basic):
             print('loading model')
             self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
 
-        preds = {0: [], 1: [], 2: []}
-        trues = {0: [], 1: [], 2: []}
-        eval_masks = {0: [], 1: [], 2: []}
-        sources = ['cha', 'par', 'sst']
+        source_nums = len(self.args.source_names)
+        sources = self.args.source_names
+        preds = {i: [] for i in range(source_nums)}
+        trues = {i: [] for i in range(source_nums)}
+        eval_masks = {i: [] for i in range(source_nums)}
         folder_path = './test_results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
@@ -262,21 +267,27 @@ class Exp_Imputation(Exp_Basic):
         print('test shape:', {sources[source_idx]: preds[source_idx].shape for source_idx in range(len(sources))},
               {sources[source_idx]: trues[source_idx].shape for source_idx in range(len(sources))})
 
-        raw = np.loadtxt(os.path.join(self.args.root_path, self.args.data_path), dtype=float, delimiter=",")
-        data, norm_parameters = normalization(raw)
+        raws = [np.loadtxt(os.path.join(self.args.root_path, source_name + "_" + self.args.data_path), dtype=float, delimiter=",")
+               for source_name in self.args.source_names]
+        datas = []
+        norm_parameters = []
+        for raw in raws:
+            data, norm_parameter = normalization(raw)
+            datas.append(data)
+            norm_parameters.append(norm_parameter)
 
         trues1 = {source_idx: renormalization(trues[source_idx].reshape(-1, trues[source_idx].shape[-1]),
-                                              norm_parameters).reshape(trues[source_idx].shape)
+                                              norm_parameters[source_idx]).reshape(trues[source_idx].shape)
                   for source_idx in range(len(sources))}
         preds1 = {source_idx: renormalization(preds[source_idx].reshape(-1, preds[source_idx].shape[-1]),
-                                              norm_parameters).reshape(preds[source_idx].shape)
+                                              norm_parameters[source_idx]).reshape(preds[source_idx].shape)
                   for source_idx in range(len(sources))}
 
         folder_path = './results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
-        with open("result_imputation.txt", 'a') as f:
+        with open(self.args.log_dir + self.args.log_name, 'a') as f:
             f.write(setting + "  \n")
             for source_idx in range(len(sources)):
                 mae1, mse1, rmse1, mape1, mspe1 = metric(preds1[source_idx][eval_masks[source_idx] == 1],
