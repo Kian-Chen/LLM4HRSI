@@ -13,7 +13,9 @@ from transformers.models.gpt2.configuration_gpt2 import GPT2Config
 from transformers import BertTokenizer, BertModel
 from einops import rearrange
 from models import LLM4HRSI
-
+from layers.last_fusion import (WithoutFusion, V_DAB, ChannelAttention,
+                                GroupConv, STAR, ShuffleConv,
+                                TSConv2d, TSDeformConv2d)
 
 class Model(nn.Module):
     def __init__(self, configs):
@@ -34,16 +36,26 @@ class Model(nn.Module):
         self.pretrained_models = self.load_pretrained_models('pretrained/', configs.use_gpu)
 
         self.nvars = len(configs.source_names)
-        self.ffn_pw1 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.d_ff, kernel_size=1, stride=1,
-                                 padding=0, dilation=1, groups=self.c_out)
-        self.ffn_act = nn.GELU()
-        self.ffn_pw2 = nn.Conv1d(in_channels=self.nvars * self.d_ff, out_channels=self.nvars * self.c_out, kernel_size=1, stride=1,
-                                 padding=0, dilation=1, groups=self.c_out)
-        self.ffn_drop1 = nn.Dropout(0.1)
-        self.ffn_drop2 = nn.Dropout(0.1)
 
-        self.final_linear = nn.Linear(self.nvars * self.c_out, self.nvars * self.c_out)
+        self.fusion_layers = self._build_fusion_layers()
 
+    def _build_fusion_layers(self):
+        fusion_layers_dict = {
+            'WithoutFusion': WithoutFusion,
+            'V_DAB': V_DAB,
+            'ChannelAttention': ChannelAttention,
+            'GroupConv': GroupConv,
+            'STAR': STAR,
+            'ShuffleConv': ShuffleConv,
+            'TSConv2d': TSConv2d,
+            'TSDeformConv2d': TSDeformConv2d,
+        }
+        fusion_layers = fusion_layers_dict[self.configs.last_fusion](self.configs).float()
+
+        if self.configs.use_gpu:
+            device = torch.device('cuda:{}'.format(0))
+            fusion_layers.to(device=device)
+        return fusion_layers
 
     def load_pretrained_models(self, pretrained_dir, use_gpu):
         pretrained_models = []
@@ -97,7 +109,7 @@ class Model(nn.Module):
         # * S is the source nums
         B, L, M, S = x_enc.shape
         #print("The shape of x_enc is: ", x_enc.shape)
-        
+
         dec_outs = torch.zeros(B, L, M, S, device=x_enc.device)
 
         for source_idx in range(S):
@@ -109,23 +121,8 @@ class Model(nn.Module):
 
             # Store in dec_outs
             dec_outs[..., source_idx] = dec_out
-        
+
         #print("The shape of dec_outs is: ", dec_outs.shape)
         B, L, M, S = dec_outs.shape
-        # Flatten the last two dims(flatten the vars)
-        dec_outs = dec_outs.view(B, L, M * S)
-
-        # Apply ConvFFN
-        dec_outs = dec_outs.transpose(1, 2)
-        residual = dec_outs
-        dec_outs = self.ffn_pw1(dec_outs)
-        dec_outs = self.ffn_act(dec_outs)
-        dec_outs = self.ffn_drop1(dec_outs)
-        dec_outs = self.ffn_pw2(dec_outs)
-        dec_outs = self.ffn_drop2(dec_outs) + residual
-
-        # Reshape to the original shape
-        dec_outs = dec_outs.transpose(1, 2)
-        dec_outs = self.final_linear(dec_outs)
-        dec_outs = dec_outs.view(B, L, M, S)
+        dec_outs = self.fusion_layers(dec_outs)
         return dec_outs

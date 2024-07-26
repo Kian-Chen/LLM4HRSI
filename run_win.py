@@ -99,6 +99,9 @@ def main():
     # pretrain
     parser.add_argument('--pretrain_postfix', type=str, default='checkpoint.pth', help='pretrain model path')
 
+    # fusion layers
+    parser.add_argument('--last_fusion', type=str, default='TSConv2d', help='last fusion layers setting')
+
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
