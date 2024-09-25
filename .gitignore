@@ -474,3 +474,4 @@ datasets/
 *result*.txt
 pretrained/
 logs/
+.VSCodeCounter/

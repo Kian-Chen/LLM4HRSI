@@ -13,7 +13,7 @@ for %%b in (16) do (
                     --task_name imputation ^
                     --is_training 1 ^
                     --root_path ./dataset/ ^
-                    --data_path cha_all1_down1.csv ^
+                    --data_path all41.csv ^
                     --model_id all_all1_down1_mask_0.1 ^
                     --mask_rate 0.1 ^
                     --model %model_name% ^
@@ -34,7 +34,8 @@ for %%b in (16) do (
                     --train_epoch 100 ^
                     --des 'Exp' ^
                     --itr 5 ^
-                    --learning_rate %%l
+                    --learning_rate %%l ^
+                    --last_fusion STAR
             )
         )
     )

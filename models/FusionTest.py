@@ -116,6 +116,7 @@ class Model(nn.Module):
             # Select right now data
             x_enc_source = x_enc[..., source_idx]
             mask_source = mask[..., source_idx]
+            x_enc_source = x_enc_source.masked_fill(mask_source == 0, 0)
 
             dec_out = self.pretrained_models[source_idx](x_enc_source, mask_source)
 

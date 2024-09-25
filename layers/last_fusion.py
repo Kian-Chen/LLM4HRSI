@@ -6,7 +6,7 @@ from einops import rearrange
 from torchvision.ops import DeformConv2d
 
 class WithoutFusion(nn.Module):
-    def __init__(self):
+    def __init__(self, configs):
         super(WithoutFusion, self).__init__()
 
     def forward(self, x):
@@ -210,21 +210,22 @@ class GroupConv(nn.Module):
             device = torch.device('cuda:{}'.format(0))
             self.device = device
 
-        self.ffn_pw1 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.c_out,
+        self.ffn_pw1 = nn.Conv1d(in_channels=self.nvars, out_channels=96,
                                  kernel_size=1, stride=1,
-                                 padding=0, dilation=1, groups=self.c_out)
+                                 padding=0, dilation=1, groups=self.nvars)
         self.ffn_act = nn.GELU()
-        self.ffn_pw2 = nn.Conv1d(in_channels=self.nvars * self.c_out, out_channels=self.nvars * self.c_out,
+        self.ffn_pw2 = nn.Conv1d(in_channels=96 , out_channels=self.nvars,
                                  kernel_size=1, stride=1,
-                                 padding=0, dilation=1, groups=self.c_out)
+                                 padding=0, dilation=1, groups=self.nvars)
         self.ffn_drop1 = nn.Dropout(0.1)
         self.ffn_drop2 = nn.Dropout(0.1)
 
     def forward(self, x_input):
         B, L, M, S = x_input.shape
 
-        x_input = x_input.view(B, L, M * S)
-        x_input = rearrange(x_input, 'b l ms -> b ms l')
+        x_input = rearrange(x_input, 'b l m s -> b s m l')
+        x_input = x_input.reshape(B, S, M * L)
+        #x_input = rearrange(x_input, 'b l ms -> b ms l')
         residual = x_input
         x_input = self.ffn_pw1(x_input)
         x_input = self.ffn_act(x_input)
@@ -233,8 +234,9 @@ class GroupConv(nn.Module):
         x_input = self.ffn_drop2(x_input) + residual
 
         # Reshape to the original shape
-        x_output = rearrange(x_input, 'b ms l -> b l ms')
-        x_output = x_output.view(B, L, M, S)
+        x_output = x_input.reshape(B, S, M, L)
+
+        x_output = rearrange(x_output, 'b s m l -> b l m s')
 
         return x_output
 
@@ -252,18 +254,48 @@ class STAR(nn.Module):
             device = torch.device('cuda:{}'.format(0))
             self.device = device
 
+        '''
         self.conv1 = nn.Conv1d(in_channels=self.c_out, out_channels=self.d_ff, kernel_size=1, stride=1)
         self.conv2 = nn.Conv1d(in_channels=self.d_ff * self.nvars, out_channels=self.c_out, kernel_size=1, stride=1)
         self.conv3 = nn.Conv1d(in_channels=self.c_out * 2, out_channels=self.c_out, kernel_size=1, stride=1)
+        '''
+        self.seq_core = 64
+        self.gen1 = nn.Linear(self.seq_len, self.seq_len)
+        self.gen2 = nn.Linear(self.seq_len, self.seq_core)
+        self.gen3 = nn.Linear(self.seq_len + self.seq_core, self.seq_len)
+        self.gen4 = nn.Linear(self.seq_len, self.seq_len)
+
         self.drop = nn.Dropout(0.05)
         self.gelu = nn.GELU()
 
     def forward(self, x_input):
         B, L, M, S = x_input.shape
-        x_input = rearrange(x_input, 'b l m s -> b m l s')
+        residual = x_input.clone()
 
-        residual = x_input.clone()  # 创建副本而不是引用
+        x_input = rearrange(x_input, 'b l m s -> b (m s) l')
 
+        combined_mean = F.gelu(self.gen1(x_input))
+        combined_mean = self.gen2(combined_mean)
+
+        # stochastic pooling
+        if self.configs.is_training:
+            ratio = F.softmax(combined_mean, dim=1)
+            ratio = ratio.permute(0, 2, 1)
+            ratio = ratio.reshape(-1, M*S)
+            indices = torch.multinomial(ratio, 1)
+            indices = indices.view(B, -1, 1).permute(0, 2, 1)
+            combined_mean = torch.gather(combined_mean, 1, indices)
+            combined_mean = combined_mean.repeat(1, M*S, 1)
+        else:
+            weight = F.softmax(combined_mean, dim=1)
+            combined_mean = torch.sum(combined_mean * weight, dim=1, keepdim=True).repeat(1, M*S, 1)
+
+        # mlp fusion
+        combined_mean_cat = torch.cat([x_input, combined_mean], -1)
+        combined_mean_cat = F.gelu(self.gen3(combined_mean_cat))
+        combined_mean_cat = self.gen4(combined_mean_cat)
+        x_output = combined_mean_cat
+        '''
         x1 = x_input[..., 0]
         x2 = x_input[..., 1]
         x3 = x_input[..., 2]
@@ -290,9 +322,10 @@ class STAR(nn.Module):
         new_dec_outs[..., 2] = x3
 
         x_output = new_dec_outs + residual
+        '''
 
-        x_output = rearrange(x_output, 'b m l s -> b l m s')
-        return x_output
+        x_output = rearrange(x_output, 'b ms l -> b l ms').view(B, L, M, S)
+        return x_output + residual
 
 
 class ShuffleConv(nn.Module):

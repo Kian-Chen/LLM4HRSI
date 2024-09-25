@@ -102,6 +102,10 @@ def main():
     # fusion layers
     parser.add_argument('--last_fusion', type=str, default='TSConv2d', help='last fusion layers setting')
 
+    # TTTITS
+    parser.add_argument('--param_sharing_strategy', type=str, default='inner_group', help='parameter sharing strategy for TTTITS')
+    parser.add_argument('--d_lower', type=int, default=96, help='dimension of lower-level model')
+
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 

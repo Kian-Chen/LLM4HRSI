@@ -2,7 +2,7 @@ import os
 import torch
 # from models import Autoformer, Transformer, TimesNet, Nonstationary_Transformer, DLinear, FEDformer, \
 #     Informer, LightTS, Reformer, ETSformer, Pyraformer, PatchTST, MICN
-from models import LLM4HRSI, LLM4MRSI, FusionTest
+from models import LLM4HRSI, LLM4MRSI, FusionTest, TTTITS
 
 
 class Exp_Basic(object):
@@ -11,7 +11,8 @@ class Exp_Basic(object):
         self.model_dict = {
             'LLM4HRSI': LLM4HRSI,
             'LLM4MRSI': LLM4MRSI,
-            'FusionTest': FusionTest
+            'FusionTest': FusionTest,
+            'TTTITS': TTTITS,
         }
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
