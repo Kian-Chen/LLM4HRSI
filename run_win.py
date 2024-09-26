@@ -57,6 +57,7 @@ def main():
     parser.add_argument('--e_layers', type=int, default=2, help='num of encoder layers')
     parser.add_argument('--d_layers', type=int, default=1, help='num of decoder layers')
     parser.add_argument('--d_ff', type=int, default=2048, help='dimension of fcn')
+    parser.add_argument('--len_dff', type=int, default=256, help='dimension of L hidden state ')
     parser.add_argument('--moving_avg', type=int, default=25, help='window size of moving average')
     parser.add_argument('--factor', type=int, default=1, help='attn factor')
     parser.add_argument('--distil', action='store_false', help='whether to use distilling in encoder, using this argument means not using distilling', default=True)
@@ -105,6 +106,10 @@ def main():
     # TTTITS
     parser.add_argument('--param_sharing_strategy', type=str, default='inner_group', help='parameter sharing strategy for TTTITS')
     parser.add_argument('--d_lower', type=int, default=96, help='dimension of lower-level model')
+    parser.add_argument('--ttt_style', type=str, default='TTTLinear', help='style of TTT')
+
+    # For invert Embed
+    parser.add_argument('--is_invert', type=int, default=0, help='whether to invert embedding')
 
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
