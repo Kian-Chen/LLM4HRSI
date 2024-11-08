@@ -12,7 +12,7 @@ from transformers.models.gpt2.configuration_gpt2 import GPT2Config
 from transformers import BertTokenizer, BertModel
 from einops import rearrange
 from layers.last_fusion import (WithoutFusion, V_DAB, ChannelAttention,
-                                GroupConv, STAR, ShuffleConv,
+                                GroupConv, STARm, STARc, ShuffleConv,
                                 TSConv2d, TSDeformConv2d)
 
 
@@ -72,23 +72,27 @@ class Model(nn.Module):
 
         self.fusion_layers = self._build_fusion_layers()
 
-    def _build_fusion_layers(self):
+    def _build_fusion_layers(self, layer_name=None):
         fusion_layers_dict = {
             'WithoutFusion': WithoutFusion,
             'V_DAB': V_DAB,
             'ChannelAttention': ChannelAttention,
             'GroupConv': GroupConv,
-            'STAR': STAR,
+            'STARm': STARm,
+            'STARc': STARc,
             'ShuffleConv': ShuffleConv,
             'TSConv2d': TSConv2d,
             'TSDeformConv2d': TSDeformConv2d,
         }
-        fusion_layers = fusion_layers_dict[self.configs.last_fusion](self.configs).float()
+        if layer_name is None:
+            fusion_layer = fusion_layers_dict[self.configs.last_fusion](self.configs).float()
+        else:
+            fusion_layer = fusion_layers_dict[layer_name](self.configs).float()
 
         if self.configs.use_gpu:
             device = torch.device('cuda:{}'.format(0))
-            fusion_layers.to(device=device)
-        return fusion_layers
+            fusion_layer.to(device=device)
+        return fusion_layer
 
     def forward(self, x_enc, mask=None):
         dec_out = self.imputation(x_enc, mask)

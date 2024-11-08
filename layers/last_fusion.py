@@ -194,7 +194,7 @@ class ChannelAttention(nn.Module):
         x_signal = self.inverse_reduce(x_max) + self.inverse_reduce(x_avg)
         x_attention = self.sigmoid(x_signal)
         x_output = x_input * x_attention + x_input
-        return x_output
+        return x_output.view(B, L, M, S)
 
 
 class GroupConv(nn.Module):
@@ -239,11 +239,11 @@ class GroupConv(nn.Module):
         x_output = rearrange(x_output, 'b s m l -> b l m s')
 
         return x_output
+    
 
-
-class STAR(nn.Module):
+class STARc(nn.Module):
     def __init__(self, configs):
-        super(STAR, self).__init__()
+        super(STARc, self).__init__()
         self.configs = configs
         self.seq_len = configs.seq_len
         self.c_out = configs.c_out
@@ -254,11 +254,55 @@ class STAR(nn.Module):
             device = torch.device('cuda:{}'.format(0))
             self.device = device
 
-        '''
+        
         self.conv1 = nn.Conv1d(in_channels=self.c_out, out_channels=self.d_ff, kernel_size=1, stride=1)
         self.conv2 = nn.Conv1d(in_channels=self.d_ff * self.nvars, out_channels=self.c_out, kernel_size=1, stride=1)
         self.conv3 = nn.Conv1d(in_channels=self.c_out * 2, out_channels=self.c_out, kernel_size=1, stride=1)
-        '''
+
+        self.drop = nn.Dropout(0.05)
+        self.gelu = nn.GELU()
+
+    def forward(self, x_input):
+        B, L, M, S = x_input.shape
+        x_input = rearrange(x_input, 'b l m s -> b m l s')
+        residual = x_input.clone()
+
+        x_processed = []
+
+        for i in range(S):
+            x_i = x_input[..., i]
+            x_i = self.drop(self.gelu(self.conv1(x_i)))
+            x_processed.append(x_i)
+
+        x_hid = torch.cat(x_processed, dim=1)
+        x_hid = self.drop(self.gelu(self.conv2(x_hid)))
+
+        new_dec_outs = []
+        for i in range(S):
+            x_i_cat = torch.cat([x_input[..., i], x_hid], dim=1)
+            x_i_out = self.drop(self.gelu(self.conv3(x_i_cat)))
+            new_dec_outs.append(x_i_out.unsqueeze(-1))
+
+        new_dec_outs = torch.cat(new_dec_outs, dim=-1)
+
+        x_output = new_dec_outs + residual
+        return x_output
+
+
+
+class STARm(nn.Module):
+    def __init__(self, configs):
+        super(STARm, self).__init__()
+        self.configs = configs
+        self.seq_len = configs.seq_len
+        self.c_out = configs.c_out
+        self.d_ff = configs.d_ff
+        self.nvars = len(configs.source_names)
+
+        if configs.use_gpu:
+            device = torch.device('cuda:{}'.format(0))
+            self.device = device
+
         self.seq_core = 64
         self.gen1 = nn.Linear(self.seq_len, self.seq_len)
         self.gen2 = nn.Linear(self.seq_len, self.seq_core)
@@ -295,35 +339,6 @@ class STAR(nn.Module):
         combined_mean_cat = F.gelu(self.gen3(combined_mean_cat))
         combined_mean_cat = self.gen4(combined_mean_cat)
         x_output = combined_mean_cat
-        '''
-        x1 = x_input[..., 0]
-        x2 = x_input[..., 1]
-        x3 = x_input[..., 2]
-
-        x1_1 = self.drop(self.gelu(self.conv1(x1)))
-        x2_1 = self.drop(self.gelu(self.conv1(x2)))
-        x3_1 = self.drop(self.gelu(self.conv1(x3)))
-
-        x_hid = torch.cat([x1_1, x2_1, x3_1], dim=1)
-        x_hid = self.drop(self.gelu(self.conv2(x_hid)))
-
-        x1_cat = torch.cat([x1, x_hid], dim=1)
-        x2_cat = torch.cat([x2, x_hid], dim=1)
-        x3_cat = torch.cat([x3, x_hid], dim=1)
-
-        x1 = self.drop(self.gelu(self.conv3(x1_cat)))
-        x2 = self.drop(self.gelu(self.conv3(x2_cat)))
-        x3 = self.drop(self.gelu(self.conv3(x3_cat)))
-
-        # 不使用就地操作，创建一个新的张量来存储结果
-        new_dec_outs = x_input.clone()
-        new_dec_outs[..., 0] = x1
-        new_dec_outs[..., 1] = x2
-        new_dec_outs[..., 2] = x3
-
-        x_output = new_dec_outs + residual
-        '''
-
         x_output = rearrange(x_output, 'b ms l -> b l ms').view(B, L, M, S)
         return x_output + residual
 

@@ -125,6 +125,9 @@ parser.add_argument('--ttt_style', type=str, default='TTTLinear', help='style of
 # For invert Embed
 parser.add_argument('--is_invert', type=int, default=0, help='whether to invert embedding')
 
+# For Expert Model
+parser.add_argument('--expert_models', type=str, default='CCSS', help='expert model, you can use W, V, A, G, M, S, H, C, D or their combination')
+
 args = parser.parse_args()
 args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
@@ -135,6 +138,9 @@ if args.use_gpu and args.use_multi_gpu:
     args.gpu = args.device_ids[0]
 
 args.source_names = args.source_names.split(',')
+
+args.expert_ids = list(args.expert_models)
+
 
 if not os.path.exists(args.log_dir):
     os.makedirs(args.log_dir)

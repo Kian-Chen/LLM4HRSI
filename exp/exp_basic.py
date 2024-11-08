@@ -15,6 +15,18 @@ class Exp_Basic(object):
             'TTTITS': TTTITS,
             'TTT4MHRS': TTT4MHRS
         }
+        self.expert_dict = {
+            'W': 'WithoutFusion',
+            'V': 'V_DAB',
+            'A': 'ChannelAttention',
+            'G': 'GroupConv',
+            'S': 'STARc',
+            'M': 'STARm',
+            'H': 'ShuffleConv',
+            'C': 'TSConv2d',
+            'D': 'TSDeformConv2d'
+        }
+        self.args.expert_names = [self.expert_dict[expert] for expert in self.args.expert_ids]
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
 

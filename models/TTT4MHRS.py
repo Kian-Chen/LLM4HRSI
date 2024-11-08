@@ -5,7 +5,7 @@ from layers.iEncoderLayer import EncoderLayer
 from layers.embed import DataEmbedding_inverted
 from layers.residual_block import PositionalEncoding
 from layers.last_fusion import (WithoutFusion, V_DAB, ChannelAttention,
-                                GroupConv, STAR, ShuffleConv,
+                                GroupConv, STARm, STARc, ShuffleConv,
                                 TSConv2d, TSDeformConv2d)
 
 
@@ -90,32 +90,42 @@ class Model(nn.Module):
             self.layer_stack_for_first_block.to(device=device)
             self.layer_stack_for_second_block.to(device=device)
 
-        self.fusion_layers = self._build_fusion_layers()
+        self.expert_nums = len(self.configs.expert_ids)
 
+        # self.fusion_layers = self._build_fusion_layers()
+        self.fusion_layers = nn.ModuleList([
+            self._build_fusion_layers(name) for name in self.configs.expert_names
+            ])
 
-    def _build_fusion_layers(self):
+        self.gate = nn.Linear(self.seq_len, self.expert_nums)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def _build_fusion_layers(self, layer_name=None):
         fusion_layers_dict = {
             'WithoutFusion': WithoutFusion,
             'V_DAB': V_DAB,
             'ChannelAttention': ChannelAttention,
             'GroupConv': GroupConv,
-            'STAR': STAR,
+            'STARm': STARm,
+            'STARc': STARc,
             'ShuffleConv': ShuffleConv,
             'TSConv2d': TSConv2d,
             'TSDeformConv2d': TSDeformConv2d,
         }
-        fusion_layers = fusion_layers_dict[self.configs.last_fusion](self.configs).float()
+        if layer_name is None:
+            fusion_layer = fusion_layers_dict[self.configs.last_fusion](self.configs).float()
+        else:
+            fusion_layer = fusion_layers_dict[layer_name](self.configs).float()
 
         if self.configs.use_gpu:
             device = torch.device('cuda:{}'.format(0))
-            fusion_layers.to(device=device)
-        return fusion_layers
-    
+            fusion_layer.to(device=device)
+        return fusion_layer
 
     def forward(self, x_enc, mask=None):
         dec_out = self.imputation(x_enc, mask)
         return dec_out
-    
+
     def imputation(self, x_enc, mask):
         # * B is batch size
         # * L is the len of the seq
@@ -192,5 +202,16 @@ class Model(nn.Module):
             dec_outs[..., source_idx] = X_out
 
         B, L, M, S = dec_outs.shape
-        dec_outs = self.fusion_layers(dec_outs)
-        return dec_outs
+
+        tmp = dec_outs.permute(0, 2, 3, 1)
+        tmp = tmp.reshape(B*M*S, L).contiguous()  # (B*M*S, L)
+
+        score = F.softmax(self.gate(tmp), dim=-1)  # (B*M*S, E)
+
+        # Expert outputs
+        expert_outputs = torch.stack([self.fusion_layers[i](dec_outs).permute(0, 2, 3, 1).reshape(B*M*S, L)
+                                      for i in range(self.expert_nums)], dim=-1)  # (BxM*S, L, E)
+
+        prediction = torch.einsum("BLE,BE->BL", expert_outputs, score)
+        prediction = prediction.reshape(B, M, S, -1).permute(0, 3, 1, 2)
+        return prediction
