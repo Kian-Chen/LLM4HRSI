@@ -13,6 +13,7 @@ else:
 
 
 from exp.exp_imputation import Exp_Imputation
+from exp.exp_trad import Exp_Trad
 import random
 import numpy as np
 
@@ -43,6 +44,8 @@ parser.add_argument('--freq', type=str, default='h',
                     help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
 parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 parser.add_argument('--source_names', type=str, default='cha,par,sst', help='the name of the sources')
+parser.add_argument('--lat', type=int, default=24, help='latitude')
+parser.add_argument('--lon', type=int, default=24, help='longitude')
 
 # forecasting task
 parser.add_argument('--seq_len', type=int, default=96, help='input sequence length')
@@ -128,6 +131,14 @@ parser.add_argument('--is_invert', type=int, default=0, help='whether to invert 
 # For Expert Model
 parser.add_argument('--expert_models', type=str, default='CCSS', help='expert model, you can use W, V, A, G, M, S, H, C, D or their combination')
 
+# For DINEOF model
+parser.add_argument('--rank', type=int, default=5, help='rank of SVD in DINEOF')
+parser.add_argument('--tol', type=float, default=1e-8, help='tolerance in DINEOF')
+parser.add_argument('--nitemax', type=int, default=300, help='maximum number of iterations in DINEOF')
+parser.add_argument('--to_center', type=bool, default=True, help='whether to center the tensor before SVD')
+parser.add_argument('--keep_non_negative_only', type=bool, default=True, help='whether to keep non-negative values only')
+
+
 args = parser.parse_args()
 args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
@@ -148,20 +159,13 @@ if not os.path.exists(args.log_dir):
 print('Args in experiment:')
 print(args)
 
-if args.task_name == 'long_term_forecast':
-    Exp = Exp_Long_Term_Forecast
-elif args.task_name == 'short_term_forecast':
-    Exp = Exp_Short_Term_Forecast
-elif args.task_name == 'imputation':
-    Exp = Exp_Imputation
-elif args.task_name == 'anomaly_detection':
-    Exp = Exp_Anomaly_Detection
-elif args.task_name == 'classification':
-    Exp = Exp_Classification
-else:
-    Exp = Exp_Long_Term_Forecast
+if args.task_name == 'imputation':
+    if args.model_id == 'DINEOF':
+        Exp = Exp_Trad
+    else:
+        Exp = Exp_Imputation
 
-if args.is_training:
+if args.is_training  and args.model != 'DINEOF':
     for ii in range(args.itr):
         # setting record of experiments
         setting = '{}_{}_{}_{}_ft{}_te{}_bs{}_gl{}_dm{}_nh{}_el{}_lr{}_enci{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
@@ -191,7 +195,7 @@ if args.is_training:
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.test(setting)
         torch.cuda.empty_cache()
-else:
+elif args.model != 'DINEOF':
     ii = 0
     setting = '{}_{}_{}_{}_ft{}_te{}_bs{}_gl{}_dm{}_nh{}_el{}_lr{}_enci{}_df{}_fc{}_eb{}_dt{}_{}_{}'.format(
             args.task_name,
@@ -217,3 +221,14 @@ else:
     exp.test(setting, test=1)
     exp.gen(setting)
     torch.cuda.empty_cache()
+else:
+        for ii in range(args.itr):
+            setting = '{}_{}_{}_{}_Rank{}_Exp_{}'.format(
+                args.task_name,
+                args.model_id,
+                args.model,
+                args.data,
+                args.rank, ii)
+            exp = Exp(args)
+            print('>>>>>>>start evaluating : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+            exp.evaluate(setting)
